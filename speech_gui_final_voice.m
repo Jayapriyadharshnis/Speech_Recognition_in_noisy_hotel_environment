@@ -1,32 +1,56 @@
 function speech_gui_final_voice()
-clc; clear; close all;
-disp("🎙️ Voice Command Recognition GUI - Hotel Version");
+
+clc;
+clear;
+close all;
+
+disp("Voice Command Recognition GUI - Hotel Version");
 
 % === Load trained model ===
 S = load('outputs/trained_model.mat');
 model = S.model;
 mu = S.mu;
 sigma = S.sigma;
-disp("✅ Trained model loaded successfully.");
 
-% === GUI window ===
+disp("Trained model loaded successfully.");
+
+% === Create GUI window ===
 fig = uifigure('Name','Hotel Voice Assistant','Position',[200 100 850 600]);
-uilabel(fig,'Text','🍴 Voice Command Recognition System','FontSize',20,...
-    'FontWeight','bold','Position',[180 550 500 40]);
 
-cols = {'Item Name','Type','Price (₹)'};
-tbl = uitable(fig,'Data',cell(0,3),'ColumnName',cols,...
+uilabel(fig,...
+    'Text','Voice Command Recognition System',...
+    'FontSize',20,...
+    'FontWeight','bold',...
+    'Position',[200 550 450 40]);
+
+% === Table for order display ===
+cols = {'Item Name','Type','Price (Rs)'};
+
+tbl = uitable(fig,...
+    'Data',cell(0,3),...
+    'ColumnName',cols,...
     'Position',[150 250 550 250]);
 
-uibutton(fig,'Text','🎧 Record Command','FontSize',14,...
-    'Position',[320 190 200 40],'ButtonPushedFcn',@(src,event)recordCommand());
+% === Record button ===
+uibutton(fig,...
+    'Text','Record Command',...
+    'FontSize',14,...
+    'Position',[320 190 200 40],...
+    'ButtonPushedFcn',@(src,event)recordCommand());
 
-uilabel(fig,'Text','Result:','FontSize',14,...
+% === Result label ===
+uilabel(fig,...
+    'Text','Result:',...
+    'FontSize',14,...
     'Position',[150 150 100 30]);
-resultLabel = uilabel(fig,'Text','','FontSize',14,'FontWeight','bold',...
+
+resultLabel = uilabel(fig,...
+    'Text','',...
+    'FontSize',14,...
+    'FontWeight','bold',...
     'Position',[220 150 500 30]);
 
-% === Menu items ===
+% === Menu database ===
 menuItems = {
     'idly','Veg',20;
     'dosa','Veg',30;
@@ -36,92 +60,169 @@ menuItems = {
     'chickenbriyani','Non-Veg',100
 };
 
-% === Record Command ===
-    function recordCommand()
-        fs = 16000; recObj = audiorecorder(fs,16,1);
-        disp("🎧 Recording...");
-        recordblocking(recObj, 2);
-        y = getaudiodata(recObj);
-        disp("✅ Recorded.");
+% =====================================================
+% RECORD FUNCTION
+% =====================================================
+function recordCommand()
 
-        % --- Basic noise filter (smooth audio) ---
-        y = medfilt1(y,5);   % simple median filter (no toolbox needed)
+    fs = 16000;
 
-        % --- Predict ---
-        label = recognize_command_voice(y, model, mu, sigma);
-        resultLabel.Text = "🧠 Predicted Command: " + label;
-        disp("🧠 Predicted Command: " + label);
+    recObj = audiorecorder(fs,16,1);
 
-        % --- Interpret ---
-        txt = lower(char(label));
-        msg = "";
-        if contains(txt,"i_want")
-            food = erase(txt,"i_want_");
-            addItem(food);
-            msg = "Your order for " + food + " has been added.";
-        elseif contains(txt,"cancel")
-            food = erase(txt,"cancel_");
-            removeItem(food);
-            msg = "Your order for " + food + " has been cancelled.";
-        else
-            msg = "Sorry, I could not understand your command.";
-            uialert(fig,msg,"⚠️ Error");
-        end
+    disp("Recording...");
+    recordblocking(recObj,2);
 
-        % --- Speak output ---
-        try
-            NET.addAssembly('System.Speech');
-            speaker = System.Speech.Synthesis.SpeechSynthesizer;
-            Speak(speaker, char(msg));
-        catch
-            disp("🔊 " + msg);
-        end
+    y = getaudiodata(recObj);
+
+    % Validate audio
+    if isempty(y) || ~isnumeric(y)
+        uialert(fig,"Audio not captured properly.","Error");
+        return;
     end
 
-% === Add item ===
-    function addItem(food)
-        idx = find(strcmp(food,menuItems(:,1)));
-        if isempty(idx)
-            uialert(fig,"Item not found in menu.","ℹ️ Info"); return;
-        end
-        newRow = menuItems(idx,:);
-        data = tbl.Data;
-        data(end+1,:) = newRow;
-        tbl.Data = data;
-        disp("✅ Added: " + food);
+    disp("Recording complete.");
+
+    % Noise reduction
+    y = medfilt1(y,5);
+
+    % Recognize command
+    label = recognize_command_final(y, model, mu, sigma);
+
+    resultLabel.Text = "Predicted Command: " + label;
+
+    disp("Predicted Command: " + label);
+
+    % Interpret command
+    txt = lower(char(label));
+
+    msg = "";
+
+    if contains(txt,"i_want")
+
+        food = erase(txt,"i_want_");
+
+        addItem(food);
+
+        msg = "Order added: " + food;
+
+    elseif contains(txt,"cancel")
+
+        food = erase(txt,"cancel_");
+
+        removeItem(food);
+
+        msg = "Order cancelled: " + food;
+
+    else
+
+        msg = "Command not recognized";
+
+        uialert(fig,msg,"Info");
+
     end
 
-% === Remove item ===
-    function removeItem(food)
-        data = tbl.Data;
-        if isempty(data)
-            uialert(fig,"No items to cancel.","ℹ️ Info"); return;
-        end
-        idx = find(strcmp(food,data(:,1)));
-        if isempty(idx)
-            uialert(fig,"Item not in order list.","ℹ️ Info"); return;
-        end
-        data(idx,:) = [];
-        tbl.Data = data;
-        disp("❌ Removed: " + food);
+    % Speak response
+    try
+        NET.addAssembly('System.Speech');
+        speaker = System.Speech.Synthesis.SpeechSynthesizer;
+        Speak(speaker, char(msg));
+    catch
+        disp(msg);
     end
+
 end
 
-% ========================
-% 🔍 Voice Recognition Helper
-% ========================
-function label = recognize_command_voice(y, model, mu, sigma)
-    % --- Feature extraction ---
-    feats = compute_mfcc_from_frames(y,16000); % your MFCC extractor
-    feats = mean(feats,1);
+% =====================================================
+% ADD ITEM
+% =====================================================
+function addItem(food)
 
-    % --- Normalize ---
-    if length(mu) == length(feats)
-        feats = (feats - mu) ./ sigma;
-    else
-        feats = normalize(feats);
+    idx = find(strcmp(food,menuItems(:,1)));
+
+    if isempty(idx)
+        uialert(fig,"Item not in menu.","Info");
+        return;
     end
 
-    % --- Predict ---
-    label = predict(model,feats);
+    newRow = menuItems(idx,:);
+
+    data = tbl.Data;
+
+    data(end+1,:) = newRow;
+
+    tbl.Data = data;
+
+    disp("Added: " + food);
+
+end
+
+% =====================================================
+% REMOVE ITEM
+% =====================================================
+function removeItem(food)
+
+    data = tbl.Data;
+
+    if isempty(data)
+        uialert(fig,"No items to remove.","Info");
+        return;
+    end
+
+    idx = find(strcmp(food,data(:,1)));
+
+    if isempty(idx)
+        uialert(fig,"Item not found.","Info");
+        return;
+    end
+
+    data(idx,:) = [];
+
+    tbl.Data = data;
+
+    disp("Removed: " + food);
+
+end
+
+end
+
+% =====================================================
+% SPEECH RECOGNITION FUNCTION
+% =====================================================
+function label = recognize_command_final(y, model, mu, sigma)
+
+fs = 16000;
+
+% Convert to column vector
+y = reshape(y,[],1);
+
+% Normalize
+maxVal = max(abs(y));
+
+if maxVal > 0
+    y = y / maxVal;
+end
+
+% Smooth signal
+y = smoothdata(y,'movmean',5);
+
+% Extract MFCC features
+coeff = mfcc(y,fs,'NumCoeffs',14,'LogEnergy','Ignore');
+
+feats = mean(coeff,1);
+
+% Match training feature size
+n = min(length(feats),length(mu));
+
+feats = feats(1:n);
+
+mu = mu(1:n);
+
+sigma = sigma(1:n);
+
+% Normalize
+feats = (feats - mu) ./ sigma;
+
+% Predict command
+label = predict(model,feats);
+
 end
